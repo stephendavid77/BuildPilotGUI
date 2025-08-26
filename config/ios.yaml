@@ -12,6 +12,7 @@ repo_configurations:
           - "git pull origin master"
       - directory: "HostApp"
         commands:
+          - "export GIT_SSL_NO_VERIFY=true"
           - "pod repo remove gitlab-macys-mobile-ios-podspecs"
           - "pod repo update fds-mobile-ios-podspecs"
           - "pod cache clean --all"

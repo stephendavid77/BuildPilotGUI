@@ -5,6 +5,7 @@ repo_configurations:
     builds:
       - directory: "."
         commands:
+          - "git reset --hard"
           - "git pull origin master"
           - "mvn clean"
           - "mvn install -Dmaven.test.skip=true"
