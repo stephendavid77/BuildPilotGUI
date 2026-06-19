@@ -137,6 +137,7 @@ venv.bak/
 
 # macOS
 .DS_Store
+Screenshot*.png
 
 # Build artifacts
 build_summary.md
