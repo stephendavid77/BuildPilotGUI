@@ -1,2 +1,4 @@
 PyYAML
 PySide6
+pyobjc-framework-Cocoa
+pyinstaller

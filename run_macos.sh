@@ -39,25 +39,35 @@ if [ ! -d "$VENV_DIR" ]; then
     echo "✅ Virtual environment created successfully."
     echo ""
 
-    # --- 3. Install Dependencies (only if venv was just created) ---
-    echo "3. Installing required application dependencies..."
-    # Activate the virtual environment to install packages
+    # --- 3. Install Dependencies ---
+    echo "3. Installing/updating dependencies from requirements.txt..."
+    # Activate venv
     source "$VENV_DIR/bin/activate"
     
     if ! pip install -r requirements.txt; then
-        echo >&2 "❌ Error: Failed to install dependencies from requirements.txt."
-        # Deactivate before exiting on failure
+        echo >&2 "❌ Error: Failed to install dependencies."
         deactivate
         exit 1
     fi
     
-    # Deactivate after installation is complete
     deactivate
-    echo "✅ Dependencies installed successfully."
+    echo "✅ Dependencies are up to date."
     echo ""
 else
     echo "2. Virtual environment already exists. Skipping creation."
-    echo "3. Dependencies are assumed to be installed. Skipping installation."
+    
+    # --- 3. Install/Update Dependencies ---
+    echo "3. Checking and installing/updating dependencies..."
+    source "$VENV_DIR/bin/activate"
+    
+    if ! pip install -r requirements.txt; then
+        echo >&2 "❌ Error: Failed to install or update dependencies."
+        deactivate
+        exit 1
+    fi
+    
+    deactivate
+    echo "✅ Dependencies are up to date."
     echo ""
 fi
 

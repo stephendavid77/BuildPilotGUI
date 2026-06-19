@@ -11,7 +11,7 @@ applications:
     - git pull origin master
   - name: Quick Pod Install
     steps:
-    - cd HostApp && bundle exec pod install
+    - cd HostApp
 - name: iOS UI Tests
   path: /Users/srinivasan.arulsivam/projects/automation/ios-ui-tests
   env: {}
@@ -29,37 +29,17 @@ applications:
   path: /Users/srinivasan.arulsivam/projects/android/android-app
   env:
     JAVA_HOME: /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
-  commands:
-  - name: Full Build
-    steps:
-    - git fetch
-    - git reset --hard
-    - git checkout master
-    - git pull origin
-    - ./gradlew base:assembleDebug --no-build-cache
+  commands: []
 - name: Mobile-xAPI
   path: /Users/srinivasan.arulsivam/projects/xapi/CHANGE_ME_TO_YOUR_APP_DIR
   env:
     JAVA_HOME: /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
     MAVEN_HOME: /opt/homebrew/Cellar/maven/3.9.11/bin
-  commands:
-  - name: Full Build
-    steps:
-    - git fetch
-    - git reset --hard
-    - git checkout master
-    - git pull origin master
-    - mvn clean install -Dmaven.test.skip=true
+  commands: []
 - name: BuildPilotGUI
   path: /Users/srinivasan.arulsivam/projects/python/BuildPilotGUI
   env: {}
-  commands:
-  - name: Install Dependencies
-    steps:
-    - pip install -r requirements.txt
-  - name: Run
-    steps:
-    - python main.py
+  commands: []
 global_env:
   JAVA_HOME: /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
   MAVEN_HOME: /opt/homebrew/Cellar/maven/3.9.11/bin

@@ -6,13 +6,15 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QListWidget, QPushButton, QTextEdit, QSplitter, QMessageBox,
     QDialog, QLineEdit, QFormLayout, QDialogButtonBox, QFileDialog,
-    QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QLabel
+    QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QLabel,
+    QSpacerItem, QSizePolicy
 )
 from PySide6.QtCore import Qt, QObject, QThread, Signal
-from PySide6.QtGui import QFont, QFontMetrics
+from PySide6.QtGui import QFont, QFontMetrics, QIcon
 import logging
 import yaml
 import json
+import signal
 from pathlib import Path
 
 # Configure basic logging
@@ -60,7 +62,7 @@ class AddApplicationDialog(QDialog):
         path_layout.addWidget(self.path_input)
         path_layout.addWidget(self.browse_button)
         
-        self.layout.addRow("Name:", self.name_input)
+        self.layout.addRow("Application Name:", self.name_input)
         self.layout.addRow("Path:", path_layout)
         
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -302,6 +304,177 @@ class Worker(QObject):
                 pass
 
 
+class AllCommandsWorker(QObject):
+    finished = Signal()
+    output = Signal(str)
+
+    def __init__(self, applications, global_env=None):
+        super().__init__()
+        self.applications = applications
+        self.global_env = global_env or {}
+        self.process = None
+        self._is_running = False
+
+    def run(self):
+        self._is_running = True
+        results = []
+
+        for app in self.applications:
+            if not self._is_running:
+                break
+            
+            app_name = app.get("name", "Unnamed Application")
+            app_path = Path(app.get("path", "."))
+            app_env = app.get("env", {})
+
+            for command in app.get("commands", []):
+                if not self._is_running:
+                    break
+
+                command_name = command.get("name", "Unnamed Command")
+                self.output.emit(f"\n{'='*60}\n")
+                self.output.emit(f"🚀 Running '{command_name}' for Application '{app_name}'...")
+                self.output.emit(f"{'='*60}\n")
+
+                original_env = os.environ.copy()
+                
+                # Apply Global & App environments
+                if self.global_env:
+                    os.environ.update({k: str(v) for k, v in self.global_env.items() if k != "PATH_PREPEND"})
+                    if "PATH_PREPEND" in self.global_env and isinstance(self.global_env["PATH_PREPEND"], list):
+                        prepend = ":".join(str(p) for p in self.global_env["PATH_PREPEND"])
+                        os.environ["PATH"] = f"{prepend}:{original_env.get('PATH', '')}"
+
+                if app_env:
+                    os.environ.update({k: str(v) for k, v in app_env.items()})
+
+                success = True
+                for step in command.get("steps", []):
+                    if not self._is_running:
+                        success = False
+                        break
+                    
+                    self.output.emit(f"$ {step}\n")
+                    try:
+                        self.process = subprocess.Popen(
+                            step, shell=True, cwd=app_path, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, bufsize=1,
+                            preexec_fn=os.setsid
+                        )
+                        for line in iter(self.process.stdout.readline, ''):
+                            if not self._is_running:
+                                break
+                            self.output.emit(line)
+                        
+                        self.process.stdout.close()
+                        return_code = self.process.wait()
+
+                        if return_code != 0:
+                            self.output.emit(f"\n--- Step failed with exit code: {return_code} ---\n")
+                            success = False
+                            break
+                    except Exception as e:
+                        self.output.emit(f"Error executing step: {step}\n{e}\n")
+                        success = False
+                        break
+                
+                results.append({"app": app_name, "command": command_name, "success": success})
+                os.environ.clear()
+                os.environ.update(original_env)
+
+        # Generate final report
+        report = f"\n\n{'='*30}\n✨ EXECUTION SUMMARY ✨\n{'='*30}\n\n"
+        for res in results:
+            status_icon = "✅" if res["success"] else "❌"
+            report += f"{status_icon} App: {res['app']:<25} | Command: {res['command']:<25} | Status: {'Success' if res['success'] else 'Failure'}\n"
+        self.output.emit(report)
+        
+        self.finished.emit()
+
+    def stop(self):
+        self.output.emit("\n--- Execution stopped by user. ---\n")
+        self._is_running = False
+        if self.process:
+            try:
+                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+
+class QuickStartTab(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+        
+        tutorial_text = """
+        <h2 style="color: #007bff; margin-bottom: 5px; font-family: -apple-system, sans-serif;">🚀 Welcome to BuildPilotGUI!</h2>
+        <p style="font-family: -apple-system, sans-serif; font-size: 13px; line-height: 1.5; color: #555; margin-bottom: 15px;">
+            BuildPilotGUI is your central command dashboard. Instead of keeping multiple terminal windows open for different software projects (e.g., iOS, Android, Spring Boot services), you can configure them once here and execute their build, deployment, or test pipelines with a single click.
+        </p>
+        
+        <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 15px;" />
+
+        <h3 style="color: #333; margin-top: 0; margin-bottom: 8px; font-family: -apple-system, sans-serif; font-size: 14px;">🛠️ Method 1: Configuring with the Graphical UI (Easiest)</h3>
+        <p style="font-family: -apple-system, sans-serif; font-size: 13px; color: #333; line-height: 1.5;">
+            You can set up your workspace completely visually inside this application:
+        </p>
+        <ol style="margin-left: 20px; line-height: 1.7; font-family: -apple-system, sans-serif; font-size: 13px; color: #333; margin-bottom: 15px;">
+            <li><b>Add your Project</b>: Click <b>Add</b> under the left panel. Enter a name (e.g. <i>My Service</i>) and browse to the repository folder on your Mac.</li>
+            <li><b>Add custom Commands</b>: Select your project on the left. In the <b>Commands</b> tab, click <b>Add Command</b>. Name it (e.g. <i>Build & Run</i>) and write your sequential terminal scripts <b>one command per line</b> (e.g., <code>git pull</code>, then <code>npm install</code> on the next line).</li>
+            <li><b>Manage Environment Variables</b>: Go to the <b>Application Env</b> tab, click <b>Add Variable</b> to specify settings specific to this project, and click <b>Save Application Env</b>.</li>
+        </ol>
+
+        <h3 style="color: #333; margin-top: 20px; margin-bottom: 8px; font-family: -apple-system, sans-serif; font-size: 14px;">📝 Method 2: Under-the-Hood YAML Configuration (For Power Users)</h3>
+        <p style="font-family: -apple-system, sans-serif; font-size: 13px; color: #333; line-height: 1.5;">
+            All of your applications, command scripts, and environment overrides are saved in a single configuration file shown in the <b>Config Path</b> at the top. You can edit this file visually by clicking the <b>Edit Config</b> button at the top right. Here is how the structure is formatted:
+        </p>
+        
+        <pre style="background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; line-height: 1.4; color: #333;">
+<b>applications:</b>                 <span style="color: #6a737d;"># A list of all software projects you want to manage</span>
+  - <b>name:</b> "iOS App"           <span style="color: #6a737d;"># The friendly display name shown in the left panel</span>
+    <b>path:</b> "/Users/path/app"   <span style="color: #6a737d;"># The absolute directory of the project on your Mac</span>
+    <b>env:</b>                      <span style="color: #6a737d;"># Project-specific environment variable overrides</span>
+      <b>PORT:</b> "3000"
+    <b>commands:</b>                 <span style="color: #6a737d;"># List of executable pipelines for this project</span>
+      - <b>name:</b> "Install & Run" <span style="color: #6a737d;"># Name shown under the Commands list</span>
+        <b>steps:</b>                <span style="color: #6a737d;"># List of terminal commands executed sequentially</span>
+          - "git fetch"
+          - "pod install"
+          - "fastlane build"
+
+<b>global_env:</b>                   <span style="color: #6a737d;"># Environment variables applied to ALL projects and builds</span>
+  <b>JAVA_HOME:</b> "/opt/java"
+  <b>PATH_PREPEND:</b>               <span style="color: #6a737d;"># Special key to prepend tool directories to your system PATH</span>
+    - "/opt/apache-maven/bin"
+        </pre>
+
+        <p style="font-family: -apple-system, sans-serif; font-size: 13px; color: #333; line-height: 1.5; margin-top: 15px;">
+            💡 <i>Note: When using the <b>Edit Config</b> button, BuildPilotGUI automatically validates your YAML syntax when saving to protect you from configuration corruption.</i>
+        </p>
+
+        <h3 style="color: #333; margin-top: 20px; margin-bottom: 8px; font-family: -apple-system, sans-serif; font-size: 14px;">🏃‍♂️ Basic Workflow:</h3>
+        <ol style="margin-left: 20px; line-height: 1.7; font-family: -apple-system, sans-serif; font-size: 13px; color: #333;">
+            <li><b>Select a Project</b>: Click any application in the left panel.</li>
+            <li><b>Select a Command</b>: Pick a command under the <b>Commands</b> tab.</li>
+            <li><b>Run & Watch</b>: Click the green <span style="color: #28a745; font-weight: bold;">Run Command</span> button. Logs will stream in real-time below!</li>
+        </ol>
+        
+        <h3 style="color: #333; margin-top: 20px; margin-bottom: 8px; font-family: -apple-system, sans-serif; font-size: 14px;">💡 Pro Tips:</h3>
+        <ul style="margin-left: 20px; line-height: 1.7; font-family: -apple-system, sans-serif; font-size: 13px; color: #333; list-style-type: square; margin-bottom: 20px;">
+            <li><b>Stop Run</b>: Press the red <span style="color: #dc3545; font-weight: bold;">Stop</span> button to instantly cancel any running commands.</li>
+            <li><b>Execute All</b>: Click the blue <span style="color: #007bff; font-weight: bold;">Execute All</span> button at the top to run all pipelines sequentially and view a full success/failure report.</li>
+            <li><b>Global Variables</b>: Manage variables globally (via the <span style="font-weight: bold;">Global Env</span> button next to Edit Config).</li>
+        </ul>
+        """
+        
+        viewer = QTextEdit()
+        viewer.setHtml(tutorial_text)
+        viewer.setReadOnly(True)
+        viewer.setFrameStyle(0) # Borderless
+        layout.addWidget(viewer)
+
+
 class ConfigEditDialog(QDialog):
     def __init__(self, config_path, parent=None):
         super().__init__(parent)
@@ -360,6 +533,11 @@ class MainWindow(QMainWindow):
         self.config_path = config_path
         self.setWindowTitle("BuildPilotGUI")
         self.setGeometry(100, 100, 1200, 800)
+
+        # Set app icon
+        icon_path = Path(__file__).parent / "assets" / "icon.svg"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
         
         self.current_thread = None
         self.current_worker = None
@@ -371,34 +549,112 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self.populate_applications()
 
+    def on_execute_all_clicked(self):
+        self.run_button.setEnabled(False)
+        self.execute_all_btn.setEnabled(False)
+        self.stop_button.setEnabled(True)
+        self.log_viewer.clear()
+        
+        try:
+            with open(self.config_path, 'r') as f:
+                config_data = yaml.safe_load(f) or {}
+            global_env = config_data.get("global_env", {})
+        except Exception:
+            global_env = {}
+
+        self.current_thread = QThread()
+        self.current_worker = AllCommandsWorker(self.applications, global_env)
+        self.current_worker.moveToThread(self.current_thread)
+        
+        self.current_thread.started.connect(self.current_worker.run)
+        self.current_worker.finished.connect(self.current_thread.quit)
+        self.current_worker.finished.connect(self.current_worker.deleteLater)
+        self.current_thread.finished.connect(self.current_thread.deleteLater)
+        self.current_worker.output.connect(self.log_viewer.append)
+        
+        def cleanup():
+            self.run_button.setEnabled(True)
+            self.execute_all_btn.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            self.current_thread = None
+            self.current_worker = None
+        
+        self.current_thread.finished.connect(cleanup)
+        self.current_thread.start()
+
+    def show_help_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("How to Use BuildPilotGUI")
+        dialog.setMinimumSize(800, 700)
+        
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QuickStartTab())
+        
+        # Add a close button
+        button_box = QDialogButtonBox(QDialogButtonBox.Close)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        
+        dialog.exec()
+
     def init_ui(self):
-        # Top Bar
+        # --- Define all buttons first ---
+        self.browse_config_btn = QPushButton("Browse...")
+        self.edit_config_btn = QPushButton("Edit Config")
+        self.global_env_btn = QPushButton("Global Env")
+        self.help_btn = QPushButton("?")
+        self.add_app_button = QPushButton("Add App")
+        self.edit_app_button = QPushButton("Edit App")
+        self.delete_app_button = QPushButton("Delete")
+        self.add_cmd_button = QPushButton("Add Command")
+        self.edit_cmd_button = QPushButton("Edit Command")
+        self.delete_cmd_button = QPushButton("Delete Command")
+        self.run_button = QPushButton("Run Command")
+        self.stop_button = QPushButton("Stop")
+        self.execute_all_btn = QPushButton("Execute All")
+        self.export_log_button = QPushButton("Export Log")
+        self.save_env_btn = QPushButton("Save Application Env")
+
+        # --- Top Bar ---
         config_bar_layout = QHBoxLayout()
         config_label = QLabel("Config Path:")
-
         self.config_path_display = QLineEdit(str(self.config_path))
         self.config_path_display.setReadOnly(True)
 
-        self.browse_config_btn = QPushButton("Browse...")
         self.browse_config_btn.clicked.connect(self.browse_config_path)
-
-        self.edit_config_btn = QPushButton("Edit Config")
         self.edit_config_btn.clicked.connect(self.edit_config_file)
-
-        self.global_env_btn = QPushButton("Global Env")
         self.global_env_btn.clicked.connect(self.edit_global_env)
+        
+        self.help_btn.clicked.connect(self.show_help_dialog)
+        self.help_btn.setFixedSize(28, 28)
+        self.help_btn.setStyleSheet("""
+            QPushButton {
+                font-weight: bold;
+                border-radius: 14px;
+                border: 1px solid #007bff;
+                background-color: #f8f9fa;
+                color: #007bff;
+            }
+            QPushButton:hover {
+                background-color: #007bff;
+                color: white;
+            }
+        """)
 
         config_bar_layout.addWidget(config_label)
         config_bar_layout.addWidget(self.config_path_display)
         config_bar_layout.addWidget(self.browse_config_btn)
         config_bar_layout.addWidget(self.edit_config_btn)
         config_bar_layout.addWidget(self.global_env_btn)
+        spacer = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
+        config_bar_layout.addSpacerItem(spacer)
+        config_bar_layout.addWidget(self.help_btn)
         self.layout.addLayout(config_bar_layout)
 
 
         main_splitter = QSplitter(Qt.Horizontal)
 
-        # Left panel: App list and buttons
+        # --- Left panel: App list and buttons ---
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         
@@ -406,9 +662,6 @@ class MainWindow(QMainWindow):
         self.app_list_widget.itemSelectionChanged.connect(self.on_application_selected)
         
         app_button_layout = QHBoxLayout()
-        self.add_app_button = QPushButton("Add")
-        self.edit_app_button = QPushButton("Edit")
-        self.delete_app_button = QPushButton("Delete")
         self.add_app_button.clicked.connect(self.add_application)
         self.edit_app_button.clicked.connect(self.edit_application)
         self.delete_app_button.clicked.connect(self.delete_application)
@@ -420,7 +673,7 @@ class MainWindow(QMainWindow):
         left_layout.addLayout(app_button_layout)
         main_splitter.addWidget(left_panel)
 
-        # Right Panel: QTabWidget
+        # --- Right Panel: QTabWidget ---
         self.tab_widget = QTabWidget()
         
         # Tab 1: Commands
@@ -430,9 +683,6 @@ class MainWindow(QMainWindow):
         self.command_list_widget = QListWidget()
         
         cmd_button_layout = QHBoxLayout()
-        self.add_cmd_button = QPushButton("Add Command")
-        self.edit_cmd_button = QPushButton("Edit Command")
-        self.delete_cmd_button = QPushButton("Delete Command")
         self.add_cmd_button.clicked.connect(self.add_command)
         self.edit_cmd_button.clicked.connect(self.edit_command)
         self.delete_cmd_button.clicked.connect(self.delete_command)
@@ -441,7 +691,6 @@ class MainWindow(QMainWindow):
         cmd_button_layout.addWidget(self.delete_cmd_button)
 
         run_control_layout = QHBoxLayout()
-        self.run_button = QPushButton("Run Command")
         self.run_button.clicked.connect(self.on_run_command_clicked)
         self.run_button.setStyleSheet("""
             QPushButton {
@@ -468,7 +717,6 @@ class MainWindow(QMainWindow):
             }
         """)
 
-        self.stop_button = QPushButton("Stop")
         self.stop_button.clicked.connect(self.stop_execution)
         self.stop_button.setEnabled(False)
         self.stop_button.setStyleSheet("""
@@ -495,18 +743,45 @@ class MainWindow(QMainWindow):
                 border-color: #6c757d;
             }
         """)
+        
+        self.execute_all_btn.clicked.connect(self.on_execute_all_clicked)
+        self.execute_all_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #007bff;
+                color: white;
+                border: 1px solid #0069d9;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #0069d9;
+                border-color: #0062cc;
+            }
+            QPushButton:pressed {
+                background-color: #0062cc;
+                border-color: #005cbf;
+            }
+            QPushButton:disabled {
+                background-color: #6c757d;
+                color: #cccccc;
+                border-color: #6c757d;
+            }
+        """)
+
         run_control_layout.addWidget(self.run_button)
         run_control_layout.addWidget(self.stop_button)
 
         commands_layout.addWidget(self.command_list_widget)
         commands_layout.addLayout(cmd_button_layout)
         commands_layout.addLayout(run_control_layout)
+        commands_layout.addWidget(self.execute_all_btn)
         
         # Tab 2: Application Env
         self.env_tab = QWidget()
         env_tab_layout = QVBoxLayout(self.env_tab)
         self.app_env_widget = EnvTableWidget()
-        self.save_env_btn = QPushButton("Save Application Env")
         self.save_env_btn.clicked.connect(self.save_app_env)
         env_tab_layout.addWidget(self.app_env_widget)
         env_tab_layout.addWidget(self.save_env_btn)
@@ -515,7 +790,7 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.env_tab, "Application Env")
         main_splitter.addWidget(self.tab_widget)
 
-        # Bottom Panel: Logs
+        # --- Bottom Panel: Logs ---
         vertical_splitter = QSplitter(Qt.Vertical)
         vertical_splitter.addWidget(main_splitter)
         
@@ -523,7 +798,6 @@ class MainWindow(QMainWindow):
         log_layout = QVBoxLayout(log_panel)
         self.log_viewer = QTextEdit()
         self.log_viewer.setReadOnly(True)
-        self.export_log_button = QPushButton("Export Log")
         self.export_log_button.clicked.connect(self.export_log)
         log_layout.addWidget(self.log_viewer)
         log_layout.addWidget(self.export_log_button)
@@ -860,7 +1134,25 @@ class MainWindow(QMainWindow):
 
 def start_gui():
     """Main entry point to launch the GUI."""
+    # Restore default Ctrl+C behavior for the GUI app
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+
     app = QApplication(sys.argv)
+    app.setApplicationName("BuildPilotGUI")
+    app.setApplicationDisplayName("BuildPilotGUI")
+
+    # macOS-specific code to set the menu bar name
+    if sys.platform == "darwin":
+        try:
+            from Foundation import NSBundle
+            bundle = NSBundle.mainBundle()
+            if bundle:
+                info = bundle.localizedInfoDictionary() or bundle.infoDictionary()
+                if info:
+                    info['CFBundleName'] = "BuildPilotGUI"
+        except ImportError:
+            logging.warning("Could not import Foundation framework. App name may not appear correctly in menu bar.")
+            pass
 
     # Load settings to find the config path
     settings = load_app_settings()
