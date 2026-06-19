@@ -1,97 +1,124 @@
-# BuildPilot
+# BuildPilotGUI
 
-BuildPilot is an automated, multi-language, profile-based build tool designed to streamline the process of building multiple projects, such as those in a monorepo or a collection of local repositories.
+BuildPilotGUI is a professional, multi-project macOS desktop control panel built with **PySide6 (Qt for Python)**. It acts as an intuitive dashboard that lets you manage, configure, and build multiple distinct projects (e.g., iOS, Android, Spring Boot, Python) from a single user interface.
+
+With a fully responsive, multi-threaded layout, you can trigger custom build pipelines, manage environment variables, and see real-time log outputs without freezing your screen.
+
+---
 
 ## Core Features
 
-- **Profile-Based Builds**: Define different build profiles for various scenarios (e.g., `daily`, `full_release`, `ci`).
-- **Declarative Configuration**: All build logic is defined in simple YAML files, keeping the core script clean and easy to manage.
-- **Language-Agnostic**: Easily extendable to support any language or build system by adding a simple language configuration file.
-- **Parallel Execution**: Builds non-priority projects in parallel to significantly speed up the overall process.
-- **Flexible Project Filtering**: Include or exclude projects using simple name lists or powerful regex patterns.
-- **Build Prioritization**: Ensure critical projects are built first in a sequential, predictable order.
-- **Environment Customization**: Override or prepend environment variables (like `PATH`) for specific build needs.
-- **Automated Summary Reports**: Generates a `build_summary.md` at the end of each run with the status of all attempted builds.
+- 🖥️ **Visual Dashboard**: Clean macOS native look and feel.
+- 📁 **Active Config Locator**: Path to your configuration file is displayed at the top for easy reference and copying.
+- 🛠️ **In-App Project Management**: Add, edit, and delete different projects (applications) directly inside the GUI.
+- ⚙️ **Custom Commands Editor**: Create and edit custom commands and write their sequential shell steps (e.g., `git fetch`, `pod install`, `mvn clean install`) line-by-line.
+- 🧵 **Multi-Threaded Live Logging**: Long-running builds execute in background threads. Real-time stdout and stderr output are piped directly to the log window.
+- 🛑 **Stop Execution**: Kill running builds/command groups instantly with a dedicated "Stop" button that terminates process groups.
+- 📄 **Export Log**: Save any terminal output to a local `.txt` file for debugging or sharing.
+- 🌐 **Global & Local Env Editor**: Interactive spreadsheet-like tables to add and manage:
+  - **Global Variables** (applies to all projects, like `JAVA_HOME`).
+  - **Application Variables** (isolated environment overrides for specific projects).
 
-## How it Works
-
-1.  **Load Configuration**: Reads the `active_profile` from `config/config.yaml`.
-2.  **Scan Projects**: Scans the `base_directory` defined in the active profile.
-3.  **Filter Projects**: Applies `include`/`exclude` rules to create a final list of projects to build.
-4.  **Prioritize**: Builds projects listed in `build_priority` sequentially.
-5.  **Build in Parallel**: Builds all remaining projects concurrently using a thread pool.
-6.  **Detect & Build**: For each project, it detects the language (using `indicators` from `config/<language>.yaml`) and runs the corresponding `build_commands`.
-7.  **Report**: Writes a summary of all successes and failures to `build_summary.md`.
+---
 
 ## Project Structure
 
-```
-BuildPilot/
-├── builders/
-│   └── builder.py        # Core build logic
+```text
+BuildPilotGUI/
 ├── config/
-│   ├── config.yaml       # Main configuration with build profiles
-│   ├── env.yaml          # Environment variable overrides
-│   └── python.yaml       # Example language-specific config
+│   └── config.yaml       # Master configuration (Applications, Commands, and Env)
 ├── utils/
-│   └── env_check.py      # Environment checking utility
-├── main.py               # Main entry point
-└── README.md
+│   └── env_check.py      # Environment checking utility (shows Java/Maven versions)
+├── main.py               # Application entry point
+├── gui.py                # PySide6 desktop interface and thread worker logic
+├── requirements.txt      # Core python dependencies
+└── README.md             # This file
 ```
 
-## Configuration
+---
 
-BuildPilot is driven by three types of YAML files in the `config/` directory.
+## Installation & Setup
 
-### 1. `config.yaml` (Main Configuration)
+Running BuildPilotGUI is highly portable and doesn't require administrator system installations.
 
-This is the main control file for the application.
+### 1. Prerequisites
+Ensure you have **Python 3** installed on your Mac. You can check this by running:
+```sh
+python3 --version
+```
 
-- `active_profile`: The profile to run. Can be a specific profile name or `all` to run every defined profile.
-- `build_profiles`: A dictionary where each key is a profile.
-  - `base_directory`: The root folder to scan for projects.
-  - `include_names` / `exclude_names`: Comma-separated lists of project directory names to explicitly include or exclude.
-  - `include_pattern` / `exclude_pattern`: Regex patterns for more advanced filtering of project names.
-  - `build_priority`: A comma-separated list of projects to build sequentially before others.
+### 2. Install Dependencies
+Navigate to the `BuildPilotGUI` project directory in your terminal and install the required libraries:
+```sh
+pip install -r requirements.txt
+```
+*(This installs `PyYAML` for parsing and `PySide6` for the graphical interface).*
 
-### 2. `<language>.yaml` (Language-Specific Config)
+---
 
-These files define how to build a specific type of project.
+## Master Configuration (`config.yaml`)
 
-- `git_command`: The command to update the project's source code (e.g., `git pull`).
-- `indicators`: A list of filenames that identify a project as being of this language (e.g., `setup.py` or `pom.xml`).
-- `build_commands`: A list of shell commands to execute to build the project.
+Your configurations are loaded from and saved to a single file: `config/config.yaml`. 
 
-**Example: `python.yaml`**
+You can edit this file directly in a text editor, or **modify it completely from inside the desktop GUI**.
+
+### Structure Overview
+
+- `applications`: A list of projects you want to manage.
+  - `name`: Display name.
+  - `path`: The absolute path to the project's root folder.
+  - `env`: Key-value map of environment variables specific to this project.
+  - `commands`: List of executable build pipelines.
+    - `name`: Command name.
+    - `steps`: An ordered list of shell commands to run.
+- `global_env`: Key-value environment variables applied globally to all running commands.
+  - `PATH_PREPEND`: A special key containing a list of directory paths to prepend to your system `PATH` (ideal for linking correct compiler binaries).
+
+**Example Structure:**
 ```yaml
-git_command: "git pull origin main"
-build_commands:
-  - "pip install -r requirements.txt"
-  - "python setup.py install"
-indicators:
-  - "setup.py"
-  - "requirements.txt"
+applications:
+  - name: "My Spring Service"
+    path: "/Users/username/projects/my-service"
+    env:
+      DB_PORT: "5432"
+    commands:
+      - name: "Build & Install"
+        steps:
+          - "git fetch"
+          - "git checkout master"
+          - "mvn clean install -Dmaven.test.skip=true"
+
+global_env:
+  JAVA_HOME: "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
+  PATH_PREPEND:
+    - "/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home/bin"
 ```
 
-### 3. `env.yaml` (Environment Overrides)
+---
 
-An optional file for setting up the build environment.
+## How to Use BuildPilotGUI
 
-- `env`: A dictionary of environment variables to set.
-- `PATH_PREPEND`: A special key whose value is a list of paths to prepend to the system's `PATH` variable.
+### 1. Launching the App
+Run the following command in your terminal to start the control panel:
+```sh
+python3 main.py
+```
 
-## How to Run
+### 2. Managing Applications
+- **Add**: Click "Add" under the application panel, enter a name, and click "Browse..." to select your local project's root directory.
+- **Edit**: Select an application and click "Edit" to modify its name or directory path.
+- **Delete**: Select an application and click "Delete" to remove it from your control panel directory. *(This will never delete your local project files, only the entry in config.yaml).*
 
-1.  **Install Dependencies:**
-    ```sh
-    pip install -r requirements.txt
-    ```
+### 3. Editing Commands & Steps
+- Select an application on the left, then open the **Commands** tab.
+- Click **Add Command** to create a pipeline. In the text box, enter steps line-by-line (e.g., step 1: `git checkout master`, step 2: `git pull`).
+- Select any command and click **Edit Command** to update steps, or **Delete Command** to remove it.
 
-2.  **Configure:**
-    - Edit `config/config.yaml` to define your `build_profiles`.
-    - Create language configs (e.g., `java.yaml`, `go.yaml`) as needed in the `config/` directory.
+### 4. Running and Stopping
+- Select an application, click on a command, and click **Run Command**.
+- The progress terminal at the bottom will stream live command steps and stdout.
+- To abort a running pipeline at any point, click the **Stop** button.
 
-3.  **Execute:**
-    ```sh
-    python main.py
-    ```
+### 5. Managing Environment Variables
+- **Application Env**: Open the "Application Env" tab on the right side. You can double-click cells to edit existing keys and values, or click "Add Variable" and "Delete Selected". Click **Save Application Env** to persist the changes.
+- **Global Env**: Click **Global Env** in the top bar. A window will open showing global settings. Edit your environment tables, then click "Save" to apply and write to the master config.
