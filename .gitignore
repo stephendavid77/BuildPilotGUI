@@ -135,6 +135,15 @@ ENV/
 env.bak/
 venv.bak/
 
+# macOS
+.DS_Store
+
+# Build artifacts
+build_summary.md
+
+# Credentials
+medallia.crt
+
 # Spyder project settings
 .spyderproject
 .spyproject

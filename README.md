@@ -37,7 +37,24 @@ BuildPilotGUI/
 
 ---
 
-## Installation & Setup
+## Easy Installation & Launch (macOS)
+
+The easiest and recommended way to run the application is to use the included shell script. This will automatically set up a virtual environment and install all necessary dependencies.
+
+1.  **Make the script executable (if needed):**
+    You only need to do this once.
+    ```sh
+    chmod +x run_macos.sh
+    ```
+
+2.  **Run the script:**
+    ```sh
+    ./run_macos.sh
+    ```
+    The script will handle the rest and launch the application.
+
+---
+## Manual Installation & Setup
 
 Running BuildPilotGUI is highly portable and doesn't require administrator system installations.
 

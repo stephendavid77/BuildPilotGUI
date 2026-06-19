@@ -9,14 +9,42 @@ from PySide6.QtWidgets import (
     QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QLabel
 )
 from PySide6.QtCore import Qt, QObject, QThread, Signal
+from PySide6.QtGui import QFont, QFontMetrics
 import logging
 import yaml
+import json
 from pathlib import Path
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-CONFIG_PATH = Path(__file__).parent / "config" / "config.yaml"
+# --- Application-wide Constants ---
+APP_NAME = "BuildPilotGUI"
+SETTINGS_DIR = Path.home() / ".config" / APP_NAME
+SETTINGS_PATH = SETTINGS_DIR / "settings.json"
+DEFAULT_CONFIG_PATH = Path(__file__).parent / "config" / "config.yaml"
+# ---
+
+def load_app_settings():
+    """Loads application settings from a JSON file."""
+    if not SETTINGS_PATH.exists():
+        return {}
+    try:
+        with open(SETTINGS_PATH, 'r') as f:
+            return json.load(f)
+    except (IOError, json.JSONDecodeError) as e:
+        logging.error(f"Failed to load settings from {SETTINGS_PATH}: {e}")
+        return {}
+
+def save_app_settings(settings):
+    """Saves application settings to a JSON file."""
+    try:
+        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+        with open(SETTINGS_PATH, 'w') as f:
+            json.dump(settings, f, indent=4)
+        logging.info(f"Settings saved to {SETTINGS_PATH}")
+    except IOError as e:
+        logging.error(f"Failed to save settings to {SETTINGS_PATH}: {e}")
 
 class AddApplicationDialog(QDialog):
     def __init__(self, parent=None, app_data=None):
@@ -274,10 +302,62 @@ class Worker(QObject):
                 pass
 
 
+class ConfigEditDialog(QDialog):
+    def __init__(self, config_path, parent=None):
+        super().__init__(parent)
+        self.config_path = config_path
+        self.setWindowTitle("Edit Configuration File")
+        self.setMinimumSize(800, 600)
+
+        self.layout = QVBoxLayout(self)
+        self.editor = QTextEdit()
+        self.editor.setLineWrapMode(QTextEdit.NoWrap)
+        
+        # Use a monospace font for better readability
+        font = self.editor.font()
+        font.setFamily("monospace")
+        font.setStyleHint(QFont.Monospace)
+        font_metrics = QFontMetrics(font)
+        self.editor.setFont(font)
+        self.editor.setTabStopDistance(4 * font_metrics.horizontalAdvance(' '))
+
+        self.layout.addWidget(self.editor)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.save_and_accept)
+        self.button_box.rejected.connect(self.reject)
+        self.layout.addWidget(self.button_box)
+
+        self.load_file()
+
+    def load_file(self):
+        try:
+            with open(self.config_path, 'r') as f:
+                self.editor.setPlainText(f.read())
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not read config file:\n{e}")
+            self.editor.setPlainText(f"# Error loading {self.config_path}\n# {e}")
+
+    def save_and_accept(self):
+        content = self.editor.toPlainText()
+        try:
+            # Validate YAML before saving
+            yaml.safe_load(content)
+            
+            with open(self.config_path, 'w') as f:
+                f.write(content)
+            
+            self.accept()
+        except yaml.YAMLError as e:
+            QMessageBox.critical(self, "Invalid YAML", f"The configuration is not valid YAML and was not saved.\n\nError: {e}")
+        except Exception as e:
+            QMessageBox.critical(self, "File Error", f"Could not save file to {self.config_path}:\n{e}")
+
 class MainWindow(QMainWindow):
-    def __init__(self, applications):
+    def __init__(self, applications, config_path):
         super().__init__()
         self.applications = applications
+        self.config_path = config_path
         self.setWindowTitle("BuildPilotGUI")
         self.setGeometry(100, 100, 1200, 800)
         
@@ -294,24 +374,27 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         # Top Bar
         config_bar_layout = QHBoxLayout()
-        config_label = QTextEdit("Config Path:")
-        config_label.setFrameStyle(0)
-        config_label.setMaximumHeight(25)
-        config_label.setMaximumWidth(80)
-        config_label.setReadOnly(True)
-        config_label.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        config_label.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        config_label = QLabel("Config Path:")
 
-        self.config_path_display = QLineEdit(str(CONFIG_PATH))
+        self.config_path_display = QLineEdit(str(self.config_path))
         self.config_path_display.setReadOnly(True)
-        
+
+        self.browse_config_btn = QPushButton("Browse...")
+        self.browse_config_btn.clicked.connect(self.browse_config_path)
+
+        self.edit_config_btn = QPushButton("Edit Config")
+        self.edit_config_btn.clicked.connect(self.edit_config_file)
+
         self.global_env_btn = QPushButton("Global Env")
         self.global_env_btn.clicked.connect(self.edit_global_env)
 
         config_bar_layout.addWidget(config_label)
         config_bar_layout.addWidget(self.config_path_display)
+        config_bar_layout.addWidget(self.browse_config_btn)
+        config_bar_layout.addWidget(self.edit_config_btn)
         config_bar_layout.addWidget(self.global_env_btn)
         self.layout.addLayout(config_bar_layout)
+
 
         main_splitter = QSplitter(Qt.Horizontal)
 
@@ -360,9 +443,58 @@ class MainWindow(QMainWindow):
         run_control_layout = QHBoxLayout()
         self.run_button = QPushButton("Run Command")
         self.run_button.clicked.connect(self.on_run_command_clicked)
+        self.run_button.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                border: 1px solid #218838;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+                border-color: #1e7e34;
+            }
+            QPushButton:pressed {
+                background-color: #1e7e34;
+                border-color: #1c7430;
+            }
+            QPushButton:disabled {
+                background-color: #6c757d;
+                color: #cccccc;
+                border-color: #6c757d;
+            }
+        """)
+
         self.stop_button = QPushButton("Stop")
         self.stop_button.clicked.connect(self.stop_execution)
         self.stop_button.setEnabled(False)
+        self.stop_button.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                color: white;
+                border: 1px solid #c82333;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #c82333;
+                border-color: #bd2130;
+            }
+            QPushButton:pressed {
+                background-color: #bd2130;
+                border-color: #b21f2d;
+            }
+            QPushButton:disabled {
+                background-color: #6c757d;
+                color: #cccccc;
+                border-color: #6c757d;
+            }
+        """)
         run_control_layout.addWidget(self.run_button)
         run_control_layout.addWidget(self.stop_button)
 
@@ -443,10 +575,66 @@ class MainWindow(QMainWindow):
         self.save_config()
         QMessageBox.information(self, "Save Env", f"Environment variables saved for application '{selected_app_name}'.")
 
+    def reload_all_from_config(self, config_path):
+        """Reloads the entire application state from a given config file."""
+        self.config_path = config_path
+        self.config_path_display.setText(str(self.config_path))
+        
+        try:
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f) or {}
+            
+            self.applications = config.get("applications", [])
+            
+            # This applies env vars for future processes, but won't affect the current GUI process
+            global_env = config.get("global_env", {})
+            if global_env:
+                for key, val in global_env.items():
+                    if key == "PATH_PREPEND" and isinstance(val, list):
+                        prepend = ":".join(str(p) for p in val)
+                        os.environ["PATH"] = f"{prepend}:{os.environ.get('PATH', '')}"
+                    else:
+                        os.environ[key] = str(val)
+
+            self.populate_applications()
+            self.command_list_widget.clear()
+            self.app_env_widget.set_env({})
+            
+            QMessageBox.information(self, "Success", f"Successfully loaded new configuration from:\n{config_path}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Config Load Error", f"Failed to load or parse the selected config file.\n\n{e}")
+            self.applications = []
+            self.populate_applications()
+
+
+    def browse_config_path(self):
+        """Opens a file dialog to select a new config.yaml."""
+        directory = str(self.config_path.parent)
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Configuration File", directory, "YAML Files (*.yaml *.yml)"
+        )
+        if file_path:
+            new_config_path = Path(file_path)
+            # Save to settings
+            settings = load_app_settings()
+            settings['config_path'] = str(new_config_path)
+            save_app_settings(settings)
+            
+            # Reload application
+            self.reload_all_from_config(new_config_path)
+
+    def edit_config_file(self):
+        """Opens a dialog to edit the config file in-place."""
+        dialog = ConfigEditDialog(self.config_path, self)
+        if dialog.exec():
+            # If saved, reload everything
+            self.reload_all_from_config(self.config_path)
+
     def edit_global_env(self):
         """Opens dialog to edit global variables."""
         try:
-            with open(CONFIG_PATH, 'r') as f:
+            with open(self.config_path, 'r') as f:
                 config_data = yaml.safe_load(f) or {}
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Could not read config file:\n{e}")
@@ -458,7 +646,7 @@ class MainWindow(QMainWindow):
             updated_global_env = dialog.get_data()
             config_data["global_env"] = updated_global_env
             try:
-                with open(CONFIG_PATH, 'w') as f:
+                with open(self.config_path, 'w') as f:
                     yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
                 QMessageBox.information(self, "Global Env", "Global environment variables updated successfully.")
             except Exception as e:
@@ -481,7 +669,7 @@ class MainWindow(QMainWindow):
         
         # Load global env from config to pass to the worker
         try:
-            with open(CONFIG_PATH, 'r') as f:
+            with open(self.config_path, 'r') as f:
                 config_data = yaml.safe_load(f) or {}
             global_env = config_data.get("global_env", {})
         except Exception:
@@ -657,20 +845,72 @@ class MainWindow(QMainWindow):
 
     def save_config(self):
         try:
-            with open(CONFIG_PATH, 'r') as f:
+            with open(self.config_path, 'r') as f:
+                # We read the file again to preserve any other top-level keys like 'global_env'
                 config_data = yaml.safe_load(f) or {}
             
             config_data['applications'] = self.applications
             
-            with open(CONFIG_PATH, 'w') as f:
+            with open(self.config_path, 'w') as f:
                 yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
-            logging.info(f"Configuration saved to {CONFIG_PATH}")
+            logging.info(f"Configuration saved to {self.config_path}")
         except Exception as e:
             logging.error(f"Error saving configuration: {e}")
-            QMessageBox.critical(self, "Error", f"Could not save config to {CONFIG_PATH}:\n{e}")
+            QMessageBox.critical(self, "Error", f"Could not save config to {self.config_path}:\n{e}")
 
-def start_gui(applications):
+def start_gui():
+    """Main entry point to launch the GUI."""
     app = QApplication(sys.argv)
-    window = MainWindow(applications)
+
+    # Load settings to find the config path
+    settings = load_app_settings()
+    config_path_str = settings.get("config_path", str(DEFAULT_CONFIG_PATH))
+    config_path = Path(config_path_str)
+
+    applications = []
+    if not config_path.is_file():
+        # Prompt user to find or create the config file
+        reply = QMessageBox.question(
+            None,
+            "Configuration Not Found",
+            f"The configuration file could not be found at:\n{config_path}\n\n"
+            "Would you like to create a new, empty configuration file at this location?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        if reply == QMessageBox.Yes:
+            try:
+                config_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(config_path, 'w') as f:
+                    yaml.dump({'applications': [], 'global_env': {}}, f)
+                applications = []
+            except Exception as e:
+                QMessageBox.critical(None, "Creation Failed", f"Could not create the file:\n{e}")
+                sys.exit(1)
+        else:
+            # If user says no, start with a blank slate
+            applications = []
+    else:
+        try:
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f) or {}
+            
+            applications = config.get("applications", [])
+            
+            # Apply global environment at startup
+            global_env = config.get("global_env", {})
+            if global_env:
+                for key, val in global_env.items():
+                    if key == "PATH_PREPEND" and isinstance(val, list):
+                        prepend = ":".join(str(p) for p in val)
+                        os.environ["PATH"] = f"{prepend}:{os.environ.get('PATH', '')}"
+                    else:
+                        os.environ[key] = str(val)
+
+        except Exception as e:
+            QMessageBox.critical(None, "Config Load Error", f"Failed to load config:\n{e}")
+            applications = []
+
+    window = MainWindow(applications, config_path)
     window.show()
     sys.exit(app.exec())

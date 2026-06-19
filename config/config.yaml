@@ -16,7 +16,7 @@ applications:
   path: /Users/srinivasan.arulsivam/projects/automation/ios-ui-tests
   env: {}
   commands:
-  - name: Run Tests
+  - name: Full Build
     steps:
     - git fetch origin
     - git reset --hard
@@ -30,27 +30,27 @@ applications:
   env:
     JAVA_HOME: /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
   commands:
-  - name: Assemble Debug
+  - name: Full Build
     steps:
     - git fetch
     - git reset --hard
     - git checkout master
     - git pull origin
     - ./gradlew base:assembleDebug --no-build-cache
-- name: Generic Spring Boot Service
+- name: Mobile-xAPI
   path: /Users/srinivasan.arulsivam/projects/xapi/CHANGE_ME_TO_YOUR_APP_DIR
   env:
     JAVA_HOME: /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
     MAVEN_HOME: /opt/homebrew/Cellar/maven/3.9.11/bin
   commands:
-  - name: Clean Install (Skip Tests)
+  - name: Full Build
     steps:
     - git fetch
     - git reset --hard
     - git checkout master
     - git pull origin master
     - mvn clean install -Dmaven.test.skip=true
-- name: This BuildPilotGUI Tool
+- name: BuildPilotGUI
   path: /Users/srinivasan.arulsivam/projects/python/BuildPilotGUI
   env: {}
   commands:
