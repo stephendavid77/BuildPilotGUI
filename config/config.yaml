@@ -1,53 +1,68 @@
-# The active build profile. Set this to one of the profiles defined below (e.g., "ios", "android").
-active_profile: "ios"
-
-# ----------------------------------------------------------------------------------------
-# Build Profiles
-#
-# Each profile defines a complete build environment, including the base directory to scan,
-# project filtering rules, and build priorities.
-# ----------------------------------------------------------------------------------------
-build_profiles:
-  ios:
-    base_directory: "/Users/srinivasan.arulsivam/projects/ios"
-    include_names: "ios_app"
-    exclude_names: ""
-    include_pattern: ".*"
-    exclude_pattern: ".*test.*"
-    build_priority: ""
-
-  android:
-    base_directory: "/Users/srinivasan.arulsivam/projects/android"
-    include_names: "android-app"
-    exclude_names: ""
-    include_pattern: ".*"
-    exclude_pattern: ""
-    build_priority: ""
-
-  services:
-    base_directory: "/Users/srinivasan.arulsivam/projects/xapi"
-    include_names: ""
-    exclude_names: "msp-mobile-app-core,mobile-core-xapi"
-    include_pattern: ".*mobile.*|.*platform.*"
-    exclude_pattern: ".*test.*"
-    build_priority: "macys-platform-spring,mobile_xapi_common"
-
-  automation:
-    base_directory: "/Users/srinivasan.arulsivam/projects/automation"
-    include_names: "ios-ui-tests"
-    exclude_names: ""
-    include_pattern: ""
-    exclude_pattern: ""
-    build_priority: ""
-
-# --- Global Settings ---
-
-project_overrides:
-  xapi:
-    build_command: "./custom-spring-boot-build.sh"
-
-git:
-  pull_command: "git pull origin master"
-
-logging:
-  enabled: true
+applications:
+- name: iOS App
+  path: /Users/srinivasan.arulsivam/projects/ios/ios_app
+  env: {}
+  commands:
+  - name: Full Build
+    steps:
+    - git reset --hard origin/master
+    - git fetch
+    - git checkout master
+    - git pull origin master
+  - name: Quick Pod Install
+    steps:
+    - cd HostApp && bundle exec pod install
+- name: iOS UI Tests
+  path: /Users/srinivasan.arulsivam/projects/automation/ios-ui-tests
+  env: {}
+  commands:
+  - name: Run Tests
+    steps:
+    - git fetch origin
+    - git reset --hard
+    - git clean -fd
+    - git pull origin master
+    - cd MCOM && git reset --hard && bundler install && fastlane regenerate_project
+      && pod install
+    - cd BCOM && bundler install && fastlane regenerate_project && pod install
+- name: Android App
+  path: /Users/srinivasan.arulsivam/projects/android/android-app
+  env:
+    JAVA_HOME: /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+  commands:
+  - name: Assemble Debug
+    steps:
+    - git fetch
+    - git reset --hard
+    - git checkout master
+    - git pull origin
+    - ./gradlew base:assembleDebug --no-build-cache
+- name: Generic Spring Boot Service
+  path: /Users/srinivasan.arulsivam/projects/xapi/CHANGE_ME_TO_YOUR_APP_DIR
+  env:
+    JAVA_HOME: /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+    MAVEN_HOME: /opt/homebrew/Cellar/maven/3.9.11/bin
+  commands:
+  - name: Clean Install (Skip Tests)
+    steps:
+    - git fetch
+    - git reset --hard
+    - git checkout master
+    - git pull origin master
+    - mvn clean install -Dmaven.test.skip=true
+- name: This BuildPilotGUI Tool
+  path: /Users/srinivasan.arulsivam/projects/python/BuildPilotGUI
+  env: {}
+  commands:
+  - name: Install Dependencies
+    steps:
+    - pip install -r requirements.txt
+  - name: Run
+    steps:
+    - python main.py
+global_env:
+  JAVA_HOME: /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+  MAVEN_HOME: /opt/homebrew/Cellar/maven/3.9.11/bin
+  PATH_PREPEND:
+  - /Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home/bin
+  - /opt/apache-maven-3.9.6/bin

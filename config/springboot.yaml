@@ -1,7 +1,0 @@
-git_command: "git pull origin master"
-build_commands:
-  - "mvn clean"
-  - "mvn install -Dmaven.test.skip=true"
-indicators:
-  - "pom.xml"
-  - "src/main/java"

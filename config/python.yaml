@@ -1,7 +1,0 @@
-git_command: "git pull origin main"
-build_commands:
-  - "pip install -r requirements.txt"
-  - "python setup.py install"
-indicators:
-  - "setup.py"
-  - "requirements.txt"
